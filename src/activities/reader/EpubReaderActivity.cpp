@@ -10,6 +10,8 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <LibraryBuilder.h>
+#include <LibraryIndexFile.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
@@ -2738,6 +2740,16 @@ void EpubReaderActivity::onExit() {
     moveFinishedBookToReadFolder(srcPath, dstPath, oldCachePath, title, author);
   } else {
     epub.reset();
+  }
+
+  if (pendingLibraryCompletionUpdate) {
+    if (!library::LibraryIndexFile::updateCompleted(library::libraryIndexPath(), pendingLibraryCompletionPathHash,
+                                                     pendingLibraryCompletionValue)) {
+      // The valid fallback is a reconciliation build. It must not be skipped:
+      // completion state can change without any card file changing.
+      library::markLibraryIndexDirty();
+    }
+    pendingLibraryCompletionUpdate = false;
   }
 
   restoreGlobalReaderSettings();
@@ -6007,6 +6019,10 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
   }
   refreshCachedTimeLeftEstimate();
   if (!stats.save(epub->getCachePath())) return;
+  const std::string& bookPath = epub->getPath();
+  pendingLibraryCompletionPathHash = library::clixPathHash(bookPath.data(), bookPath.size());
+  pendingLibraryCompletionValue = isCompleted;
+  pendingLibraryCompletionUpdate = true;
   if (statsTrackingActive) {
     if (isCompleted) {
       globalStats.completedBooks++;

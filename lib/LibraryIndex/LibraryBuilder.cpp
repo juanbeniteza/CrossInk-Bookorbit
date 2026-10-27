@@ -346,6 +346,9 @@ struct WalkState {
   PriorEntry* prior = nullptr;
   uint16_t priorCount = 0;
   uint16_t reused = 0;
+  // Metadata and file identity can be unchanged while reader-owned state (the
+  // completed bit) changes. That still needs a replacement index.
+  bool recordFlagsChanged = false;
   uint32_t serviceUnits = 0;
   // Full paths of books parsed this build (new or changed), for cover prefetch.
   std::vector<std::string> newBookPaths;
@@ -482,6 +485,7 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
   const bool completed = extractionExpected && readBookCompleted(Epub::cachePathForFilePath(fullPath, CACHE_DIR));
   entry.record.flags =
       (completed ? CLIX_BOOK_FLAG_COMPLETED : 0) | (FsHelpers::hasEpubExtension(name) ? CLIX_BOOK_FLAG_EPUB : 0);
+  if (reuseMetadata && entry.record.flags != priorRecord.flags) st.recordFlagsChanged = true;
 
   // Reuse the arrival order this book already had. Without this every rebuild
   // renumbers the whole library in disk-walk order, and "Recently added" silently
@@ -1358,7 +1362,7 @@ bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readM
   stats.enriched = st.enriched;
 
   if (previous.isOpen() && st.books == priorCount && st.reused == priorCount && stats.metadataReused == priorCount &&
-      st.unreadableSkipped == 0) {
+      !st.recordFlagsChanged && st.unreadableSkipped == 0) {
     previous.close();
     Storage.remove(STAGE_PATH);
     Storage.remove(folderStagePath.c_str());

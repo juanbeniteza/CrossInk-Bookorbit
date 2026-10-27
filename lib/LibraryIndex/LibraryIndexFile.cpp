@@ -5,6 +5,7 @@
 #include <Memory.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 
 #include "LibraryText.h"
@@ -178,6 +179,60 @@ bool LibraryIndexFile::readRecord(const uint16_t ordinal, ClixRecord& out) {
     out.nameOff = 0;
   }
   return true;
+}
+
+bool LibraryIndexFile::updateCompleted(const char* const path, const uint64_t pathHash, const bool completed) {
+  // The caller only reaches this after the reader has durably written the
+  // stats file. Patch the matching fixed-stride record instead of walking the
+  // card again just to reflect that status in the Library.
+  HalFile file = Storage.open(path, O_RDWR);
+  if (!file) {
+    LOG_ERR("LIBIDX", "cannot open index for completion update");
+    return false;
+  }
+
+  ClixHeader header{};
+  if (file.read(&header, sizeof(header)) != static_cast<int>(sizeof(header)) ||
+      validateHeader(header, file.fileSize64()) != ClixValidity::Ok) {
+    LOG_ERR("LIBIDX", "cannot safely patch invalid index completion flag");
+    file.close();
+    return false;
+  }
+
+  for (uint16_t ordinal = 0; ordinal < header.bookCount; ordinal++) {
+    ClixRecord record{};
+    if (!file.seekSet(recordOffset(header, ordinal)) ||
+        file.read(&record, sizeof(record)) != static_cast<int>(sizeof(record))) {
+      LOG_ERR("LIBIDX", "completion lookup read failed at record %u", static_cast<unsigned>(ordinal));
+      file.close();
+      return false;
+    }
+    if (record.nameOff > header.nameLen || sizeof(uint64_t) > header.nameLen - record.nameOff) continue;
+
+    uint64_t storedPathHash = 0;
+    if (!file.seekSet(header.nameStart + record.nameOff) ||
+        file.read(&storedPathHash, sizeof(storedPathHash)) != static_cast<int>(sizeof(storedPathHash))) {
+      LOG_ERR("LIBIDX", "completion hash read failed at record %u", static_cast<unsigned>(ordinal));
+      file.close();
+      return false;
+    }
+    if (storedPathHash != pathHash) continue;
+
+    const uint8_t flags = completed ? static_cast<uint8_t>(record.flags | CLIX_BOOK_FLAG_COMPLETED)
+                                    : static_cast<uint8_t>(record.flags & ~CLIX_BOOK_FLAG_COMPLETED);
+    const uint32_t flagsOffset = recordOffset(header, ordinal) + offsetof(ClixRecord, flags);
+    const bool written = file.seekSet(flagsOffset) && file.write(&flags, sizeof(flags)) == sizeof(flags) && file.sync();
+    const bool closed = file.close();
+    if (!written || !closed) {
+      LOG_ERR("LIBIDX", "completion update write failed at record %u", static_cast<unsigned>(ordinal));
+      return false;
+    }
+    return true;
+  }
+
+  LOG_INF("LIBIDX", "completion update could not find book in index");
+  file.close();
+  return false;
 }
 
 bool LibraryIndexFile::readName(const ClixRecord& record, std::string& out) {

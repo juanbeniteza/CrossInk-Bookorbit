@@ -78,6 +78,11 @@ class LibraryIndexFile {
   // Persisted complete-path fingerprint used by rebuild reconciliation.
   bool readPathHash(const ClixRecord& record, uint64_t& out);
 
+  // Change just one book's completed flag without rebuilding the card-wide
+  // index. Returns false when the index cannot be safely patched (including a
+  // missing record), so the caller can schedule the normal rebuild instead.
+  static bool updateCompleted(const char* path, uint64_t pathHash, bool completed);
+
   // Display basename, exactly as it sits on the card. This is the only string
   // the UI draws, and it is never shortened on disk.
   bool readName(const ClixRecord& record, std::string& out);

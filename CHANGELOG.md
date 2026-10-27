@@ -15,6 +15,7 @@ Based on CrossInk v1.6.1.
 
 ### Fixed
 
+- Marking a book as finished or unfinished while reading it updates its status in the Library immediately. It used to stay stale until another change forced the Library to scan the whole SD card again.
 - Highlights and bookmarks sync correctly with BookOrbit 3.5.0, which changed how the server keeps track of what each device holds:
   - Deleting every synced highlight, or every synced bookmark, of a book on the device deletes them on the server too. BookOrbit 3.5.0 took that sync for a lost copy of the book: it kept them all and sent them back to the device.
   - A highlight that came from the server is never sent back to it. BookOrbit 3.5.0 would have read the note and style that the device does not show as removed: a note written on the web was erased, the highlight turned plain, and its range on the server shrank to nothing.

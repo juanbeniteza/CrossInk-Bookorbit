@@ -267,6 +267,11 @@ class EpubReaderActivity final : public Activity {
   // Set when the reader is left at end-of-book and SETTINGS.moveFinishedToReadFolder is on.
   // Consumed in onExit() to relocate the finished book into /Read/.
   bool pendingReadFolderMove = false;
+  // Completion writes its stats while the reader owns the EPUB. The Library
+  // index update waits for onExit(), after that handle is released.
+  bool pendingLibraryCompletionUpdate = false;
+  uint64_t pendingLibraryCompletionPathHash = 0;
+  bool pendingLibraryCompletionValue = false;
   // The end screen owns these UI resources only while it is visible.
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
 
