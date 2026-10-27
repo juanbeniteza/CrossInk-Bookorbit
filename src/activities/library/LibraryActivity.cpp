@@ -26,6 +26,7 @@
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
 #include "activities/home/BookActions.h"
+#include "activities/home/RecentBookProgress.h"
 #include "activities/home/FileBrowserActionActivity.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -93,6 +94,18 @@ std::string coverThumbPathFor(const std::string& path, const int width, const in
     return UITheme::getCoverThumbPath(Xtc(path, "/.crosspoint").getThumbBmpPath(), width, height);
   }
   return {};
+}
+
+float cachedProgressForPath(const std::string& path) {
+  for (const RecentBook& book : RECENT_BOOKS.getBooks()) {
+    if (book.path == path) return RecentBookProgress::loadCachedEpubPercent(book);
+  }
+  // A book can fall out of the short Recent list while its reading cache is
+  // still valid. The cached EPUB percentage opens only that tiny sidecar, not
+  // the book itself, so the card-wide shelf can still place it correctly.
+  RecentBook book;
+  book.path = path;
+  return RecentBookProgress::loadCachedEpubPercent(book);
 }
 }  // namespace
 
@@ -311,15 +324,27 @@ void LibraryActivity::rebuildContent() {
       const auto order = reversed ? library::SortOrder::TitleDesc : library::SortOrder::TitleAsc;
       const uint16_t n = index.bookCount();
       items.reserve(n);
+      std::vector<uint16_t> unread;
+      std::vector<uint16_t> finished;
+      unread.reserve(n);
+      finished.reserve(n);
       for (uint16_t row = 0; row < n; row++) {
         const uint16_t ordinal = index.ordinalForRow(order, row);
         if (ordinal == 0xFFFF) continue;
-        if (filter != Filter::All) {
-          library::ClixRecord record{};
-          if (!index.readRecord(ordinal, record) || !passesFilter(record)) continue;
-        }
-        items.push_back(ordinal);
+        library::ClixRecord record{};
+        if (!index.readRecord(ordinal, record) || !passesFilter(record)) continue;
+        std::string path;
+        if (!index.readPath(record, path)) continue;
+        const float progress = cachedProgressForPath(path);
+        if (!library::LibraryIndexFile::isCompleted(record) && progress > 0.0f && progress < 100.0f)
+          items.push_back(ordinal);
+        else if (library::LibraryIndexFile::isCompleted(record))
+          finished.push_back(ordinal);
+        else
+          unread.push_back(ordinal);
       }
+      items.insert(items.end(), unread.begin(), unread.end());
+      items.insert(items.end(), finished.begin(), finished.end());
       break;
     }
     case Tab::Author:
@@ -605,7 +630,7 @@ void LibraryActivity::onEnter() {
   confirmLongPressFired = false;
   gridLongPressFired = false;
   gridPressActive = false;
-  tab = Tab::Recent;
+  tab = Tab::Title;
   reversed = false;
   query.clear();
   loadFilter();
@@ -824,6 +849,18 @@ void LibraryActivity::drawGrid() {
       renderer.fillRoundedRect(bbx, bby, kBadge, kBadge, 4, Color::White);
       renderer.drawRoundedRect(bbx, bby, kBadge, kBadge, 1, 4, true);
       drawLucideIcon(renderer, icon_check_24, bbx, bby);
+    }
+    const float progress = cachedProgressForPath(path);
+    if (!library::LibraryIndexFile::isCompleted(record) && progress > 0.0f && progress < 100.0f) {
+      // A restrained bottom-edge indicator: it starts at the cover's bottom-left
+      // corner and leaves the artwork, title, and finished check unobscured.
+      constexpr int kProgressH = 3;
+      const int barX = bx + 3;
+      const int barY = by + coverHeight - kProgressH - 3;
+      const int barW = coverWidth - 6;
+      const int filled = std::max(1, static_cast<int>((barW * progress) / 100.0f));
+      renderer.fillRect(barX, barY, barW, kProgressH, Color::White);
+      renderer.fillRect(barX, barY, std::min(filled, barW), kProgressH, true);
     }
     if (pageStart + i == static_cast<int>(selectorIndex)) {
       renderer.drawRoundedRect(bx - kSelectionPadding, by - kSelectionPadding, coverWidth + kSelectionPadding * 2,

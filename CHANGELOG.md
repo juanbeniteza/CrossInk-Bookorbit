@@ -12,6 +12,7 @@ Based on CrossInk v1.6.1.
 ### Added
 
 - With BookOrbit 3.5.0 or later, a book whose highlights or bookmarks were all lost on the device, with a wiped SD card for instance, gets them back from the server at its next sync. They used to stay on the server without ever coming back.
+- The Library's main title shelf puts books in progress first, unread books next, and finished books last. Books in progress show a reading-progress bar; finished books keep their checkmark.
 
 ### Fixed
 
